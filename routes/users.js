@@ -1,23 +1,26 @@
+const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, VERIFICATION_SID } = process.env;
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const passport = require('passport');
-// Load User model
+const twilio = require('twilio')(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 const User = require('../models/User');
 const { forwardAuthenticated } = require('../config/auth');
 
 // Login Page
 router.get('/login', forwardAuthenticated, (req, res) => res.render('login'));
 
+router.get('/verify', forwardAuthenticated, (req, res) => res.render('verify'));
+
 // Register Page
 router.get('/register', forwardAuthenticated, (req, res) => res.render('register'));
 
 // Register
 router.post('/register', (req, res) => {
-  const { name, email, password, password2 } = req.body;
+  const { name, phoneNumber, password, password2 } = req.body;
   let errors = [];
 
-  if (!name || !email || !password || !password2) {
+  if (!name || !phoneNumber || !password || !password2) {
     errors.push({ msg: 'Please enter all fields' });
   }
 
@@ -33,25 +36,25 @@ router.post('/register', (req, res) => {
     res.render('register', {
       errors,
       name,
-      email,
+      phoneNumber,
       password,
       password2
     });
   } else {
-    User.findOne({ email: email }).then(user => {
+    User.findOne({ phoneNumber: phoneNumber }).then(user => {
       if (user) {
         errors.push({ msg: 'Email already exists' });
         res.render('register', {
           errors,
           name,
-          email,
+          phoneNumber,
           password,
           password2
         });
       } else {
         const newUser = new User({
           name,
-          email,
+          phoneNumber,
           password
         });
 
@@ -59,14 +62,16 @@ router.post('/register', (req, res) => {
           bcrypt.hash(newUser.password, salt, (err, hash) => {
             if (err) throw err;
             newUser.password = hash;
-            newUser
-              .save()
-              .then(user => {
+            newUser.save().then(user => {
                 req.flash(
                   'success_msg',
                   'You are now registered and can log in'
                 );
-                res.redirect('/users/login');
+                twilio.verify.services('VA8e19432bd14e7d0d7a3af03ccbeafcc8')
+                 .verifications.create({to: phoneNumber, channel: 'sms'}).then(verification => {
+                     console.log(verification.sid);
+                     res.redirect('/users/login');
+                 });
               })
               .catch(err => console.log(err));
           });
@@ -74,6 +79,15 @@ router.post('/register', (req, res) => {
       }
     });
   }
+});
+
+router.post('/verify', (req, res, next) => {
+    const { code, phoneNumber } = req.body;
+    twilio.verify.services("VA8e19432bd14e7d0d7a3af03ccbeafcc8")
+      .verificationChecks.create({ code, to: phoneNumber }).then(verification => {
+          console.log(verification.sid);
+          res.redirect('/');
+    });
 });
 
 // Login
